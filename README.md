@@ -20,14 +20,32 @@ Automated chargeback dispute resolution using GPT to rank evidence and generate 
 ## Installation
 
 ```bash
-pip install pandas openai
+pip install -r requirements.txt
 ```
 
 ## Usage
 
+### Streamlit Web App (Recommended)
+
 ```bash
-export OPENAI_API_KEY='your-api-key-here'
+streamlit run app.py
+```
+
+Then:
+1. Upload your CSV file
+2. Choose how many disputes to process (1-50)
+3. Click "Process"
+4. View results and download CSV
+
+### Command-Line Script
+
+```bash
 python3 chargeback_ai_generator.py Dummy_Chargeback_Data.csv
+```
+
+Or use the default CSV:
+```bash
+python3 chargeback_ai_generator.py
 ```
 
 ## CSV Format
