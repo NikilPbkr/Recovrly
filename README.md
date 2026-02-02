@@ -1,6 +1,23 @@
 # Chargeback AI Argument Generator
 
-Automated chargeback dispute resolution using GPT to rank evidence and generate persuasive arguments.
+Automated chargeback dispute resolution using GPT to rank evidence, generate persuasive arguments, and simulate recovery outcomes.
+
+This project explores how AI can assist with **structured, economically meaningful work** by breaking a real operational workflow into modular, automatable steps.
+
+---
+
+## Overview
+
+Chargeback disputes are time-sensitive, evidence-heavy, and often handled through repetitive manual review and writing. Each case requires:
+
+- Interpreting structured transaction data  
+- Reviewing semi-structured evidence (receipts, shipping info, emails, photos)  
+- Identifying the most relevant supporting signals  
+- Writing a reason-code-specific, persuasive response  
+
+This project treats dispute resolution as a **decision-making workflow** that can be decomposed into ranking, reasoning, and generation steps — making it a strong candidate for AI-assisted automation rather than simple text generation.
+
+---
 
 ## Features
 
@@ -11,92 +28,40 @@ Automated chargeback dispute resolution using GPT to rank evidence and generate 
 ✅ Export results to CSV  
 ✅ Track token usage and costs  
 
+---
+
+## System Design
+
+The pipeline separates the task into modular, inspectable stages:
+
+### 1. Feature Extraction  
+Structured fields (amount, reason code, product type) and unstructured evidence are normalized into a consistent internal representation.
+
+### 2. Evidence Ranking  
+GPT is prompted to prioritize evidence based on dispute type, simulating how a human reviewer would identify the strongest supporting signals.
+
+### 3. Argument Generation  
+The model produces a structured, reason-code-aware response designed to maximize clarity and persuasiveness.
+
+### 4. Outcome Simulation  
+A rules-based model estimates win probability using:
+- Base difficulty of the dispute reason code  
+- Strength and quantity of supporting evidence  
+- Transaction value  
+
+This modular design makes the workflow adjustable and extensible rather than a single opaque model call.
+
+---
+
 ## Requirements
 
-- Python 3.9+
-- OpenAI API key with credits
-- Required packages: `pandas`, `openai`
+- Python 3.9+  
+- OpenAI API key with credits  
+- Required packages: `pandas`, `openai`, `streamlit`
+
+---
 
 ## Installation
 
 ```bash
 pip install -r requirements.txt
-```
-
-## Usage
-
-### Streamlit Web App (Recommended)
-
-```bash
-streamlit run app.py
-```
-
-Then:
-1. Upload your CSV file
-2. Choose how many disputes to process (1-50)
-3. Click "Process"
-4. View results and download CSV
-
-### Command-Line Script
-
-```bash
-python3 chargeback_ai_generator.py Dummy_Chargeback_Data.csv
-```
-
-Or use the default CSV:
-```bash
-python3 chargeback_ai_generator.py
-```
-
-## CSV Format
-
-Your CSV must have these columns:
-- `Transaction_ID`
-- `Customer_Name`
-- `Customer_Email`
-- `Date`
-- `Amount`
-- `Product`
-- `Reason_Code`
-- `Evidence_Receipt`
-- `Evidence_Shipping`
-- `Evidence_Email`
-- `Evidence_Photo`
-- `Current_Process`
-- `Notes`
-
-## Output
-
-The script generates `AI_Dispute_Arguments.csv` with:
-- Transaction ID
-- Customer Name
-- Product
-- Reason Code
-- Top Evidence (ranked)
-- AI-Generated Argument
-- Simulated Win Rate
-- Potential Recovery Amount
-
-## Token Usage
-
-- **~524 tokens per dispute** (with GPT-3.5-turbo)
-- **10 disputes ≈ $0.01**
-- **100 disputes ≈ $0.10**
-- **1,000 disputes ≈ $1.00**
-
-## Win Rate Calculation
-
-Win rates are calculated based on:
-1. **Reason Code** - Different dispute types have different base win rates
-2. **Evidence Quality** - More/better evidence increases win rate
-3. **Transaction Amount** - Higher amounts slightly reduce win rate
-
-## Example Output
-
-```
-Processing dispute 1/10: b6296533-b87c-4968-90bd-ed486671ae43...
-  ✓ Generated argument (win rate: 0.64)
-
-📊 Total tokens used: 5,244
-   Average per dispute: 524
-```
