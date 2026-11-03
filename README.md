@@ -1,5 +1,7 @@
 # Chargeback AI Argument Generator
 
+[![Tests](https://github.com/NikilPbkr/Recovrly/actions/workflows/tests.yml/badge.svg)](https://github.com/NikilPbkr/Recovrly/actions/workflows/tests.yml)
+
 Automated chargeback dispute resolution using GPT to rank evidence, generate persuasive arguments, and simulate recovery outcomes.
 
 This project explores how AI can assist with **structured, economically meaningful work** by breaking a real operational workflow into modular, automatable steps.
@@ -65,3 +67,16 @@ This modular design makes the workflow adjustable and extensible rather than a s
 
 ```bash
 pip install -r requirements.txt
+```
+
+---
+
+## Running tests
+
+From the repository root:
+
+```bash
+python -m unittest discover -s tests -t .
+```
+
+No API key is required. Importing `app.py` builds an OpenAI client, and the test module sets a placeholder `OPENAI_API_KEY` before that import. The suite never calls the API. The same command runs in GitHub Actions on pushes to `main` and on pull requests.
