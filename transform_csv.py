@@ -53,7 +53,7 @@ COLUMN_ALIASES = {
     "Evidence_Email": ["evidence_email", "email_proof", "correspondence", "communication"],
     "Evidence_Photo": ["evidence_photo", "photo", "image", "product_image", "photo_proof"],
     "Current_Process": ["current_process", "status", "dispute_status", "process", "stage"],
-    "Notes": ["notes", "comments", "remarks", "additional_info", "description"],
+    "Notes": ["notes", "comments", "remarks", "additional_info"],
 }
 
 # Default placeholder values
