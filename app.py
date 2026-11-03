@@ -192,12 +192,14 @@ def transform_csv(df: pd.DataFrame) -> pd.DataFrame:
     
     result_df = pd.DataFrame(standardized_data)
     
-    # Fill any remaining NaN values with appropriate placeholders
+    # Fill any remaining NaN values with appropriate placeholders.
+    # Assign the result back. Series.fillna(inplace=True) on a column updates
+    # a copy under pandas Copy-on-Write and leaves the missing values in place.
     for col in REQUIRED_COLUMNS:
         if col in result_df.columns:
             default_val = DEFAULTS[col]
             if not callable(default_val):
-                result_df[col].fillna(default_val, inplace=True)
+                result_df[col] = result_df[col].fillna(default_val)
     
     # Ensure correct column order
     result_df = result_df[REQUIRED_COLUMNS]
