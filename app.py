@@ -26,12 +26,31 @@ st.set_page_config(page_title="AI Chargeback Dispute Optimizer")
 st.title("AI Chargeback Dispute Optimizer")
 
 load_dotenv()  # Load OPENAI_API_KEY from .env if present
-api_key = os.getenv("OPENAI_API_KEY")
-if not api_key:
-    st.warning("OPENAI_API_KEY not found. Add it to a .env file in this folder or export it in your shell.")
 
-client = OpenAI()
+MISSING_API_KEY_MESSAGE = (
+    "OPENAI_API_KEY not found. Add it to a .env file in this folder or export it in your shell."
+)
+
+# Built on the first API call. Importing this module must not require a key.
+_openai_client: Optional[OpenAI] = None
+
+
+def get_openai_client() -> OpenAI:
+    """Return a shared OpenAI client, creating it on first use.
+
+    Uses the same ``OpenAI()`` defaults as a module-level client, including
+    reading ``OPENAI_API_KEY`` from the environment at construction time.
+    """
+    global _openai_client
+    if _openai_client is None:
+        _openai_client = OpenAI()
+    return _openai_client
+
+
 MODEL = os.getenv("CHARGEBACK_MODEL", "gpt-3.5-turbo")
+
+if not os.getenv("OPENAI_API_KEY"):
+    st.warning(MISSING_API_KEY_MESSAGE)
 
 # Cache for storing repeated AI responses
 if 'ai_cache' not in st.session_state:
@@ -245,7 +264,7 @@ Output ONLY valid JSON in this exact format:
         return st.session_state.ai_cache[cache_key]
     
     try:
-        response = client.chat.completions.create(
+        response = get_openai_client().chat.completions.create(
             model=MODEL,
             messages=[
                 {"role": "system", "content": "You are a chargeback dispute AI. Output only valid JSON."},
@@ -307,7 +326,7 @@ Output ONLY valid JSON in this exact format:
         return st.session_state.ai_cache[cache_key]
     
     try:
-        response = client.chat.completions.create(
+        response = get_openai_client().chat.completions.create(
             model=MODEL,
             messages=[
                 {"role": "system", "content": "You are a chargeback argument AI. Output only valid JSON. Keep arguments under 150 words."},
@@ -452,6 +471,10 @@ num_rows = st.number_input(
 process_clicked = st.button("Process")
 
 if process_clicked:
+    if not os.getenv("OPENAI_API_KEY"):
+        st.error(MISSING_API_KEY_MESSAGE)
+        st.stop()
+
     if uploaded is None:
         st.error("Please upload a CSV file.")
         st.stop()
