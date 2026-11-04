@@ -79,4 +79,4 @@ From the repository root:
 python -m unittest discover -s tests -t .
 ```
 
-No API key is required. Importing `app.py` builds an OpenAI client, and the test module sets a placeholder `OPENAI_API_KEY` before that import. The suite never calls the API. The same command runs in GitHub Actions on pushes to `main` and on pull requests.
+No API key is required. The suite never calls the API. The same command runs in GitHub Actions on pushes to `main` and on pull requests.

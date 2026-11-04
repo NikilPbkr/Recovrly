@@ -9,13 +9,9 @@ Run from the repo root:
 
 import contextlib
 import io
-import os
 import tempfile
 import unittest
 from pathlib import Path
-
-# Importing the Streamlit app constructs an OpenAI client. Tests never call it.
-os.environ.setdefault("OPENAI_API_KEY", "test-key-not-used")
 
 import pandas as pd
 
