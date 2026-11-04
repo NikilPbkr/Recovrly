@@ -7,6 +7,7 @@ Transforms any merchant CSV into standardized Stripe-style format.
 Features:
 - Fuzzy column name matching
 - Automatic placeholder filling for missing fields
+- Amount values parsed from currency-formatted merchant exports
 - Evidence text summarization for PDF/image links
 - Clean, standardized output ready for Recoverly
 
@@ -55,6 +56,32 @@ COLUMN_ALIASES = {
     "Current_Process": ["current_process", "status", "dispute_status", "process", "stage"],
     "Notes": ["notes", "comments", "remarks", "additional_info"],
 }
+
+# Currency codes stripped from amount text. Matched as whole words so a code
+# does not eat the start of an unrelated word ("USED" stays "USED").
+_CURRENCY_CODES = (
+    "USD",
+    "EUR",
+    "GBP",
+    "CAD",
+    "AUD",
+    "NZD",
+    "CHF",
+    "JPY",
+    "CNY",
+    "INR",
+    "HKD",
+    "SGD",
+    "MXN",
+    "BRL",
+)
+_CURRENCY_TOKENS = re.compile(
+    r"(?<![A-Za-z])(?:US\$|" + "|".join(_CURRENCY_CODES) + r")(?![A-Za-z])|[$€£¥]",
+    re.IGNORECASE,
+)
+_THOUSANDS_AMOUNT = re.compile(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?")
+_PLAIN_AMOUNT = re.compile(r"(?:\d+(?:\.\d+)?|\.\d+)")
+
 
 # Default placeholder values
 DEFAULTS = {
@@ -143,6 +170,69 @@ def summarize_evidence(value: Any) -> str:
     return value_str
 
 
+def _wrapped_in_parens(text: str) -> bool:
+    return len(text) >= 2 and text.startswith("(") and text.endswith(")")
+
+
+def parse_amount(value: Any) -> float:
+    """Parse one merchant amount into a float.
+
+    Plain numbers are returned unchanged. Currency symbols (``$€£¥``), common
+    currency codes, thousands commas, and surrounding whitespace are ignored.
+    A leading or trailing minus, or accounting parentheses such as ``(12.00)``,
+    marks a negative amount. Blank or unparseable values return NaN so the
+    placeholder fill can replace them.
+    """
+    if isinstance(value, bool) or value is None:
+        return float("nan")
+    if isinstance(value, (int, float)):
+        return float("nan") if pd.isna(value) else float(value)
+    try:
+        if pd.isna(value):
+            return float("nan")
+    except TypeError:
+        return float("nan")
+
+    text = str(value).replace("\u00a0", " ").replace("\u202f", " ").strip()
+    if not text:
+        return float("nan")
+
+    negative = False
+    if _wrapped_in_parens(text):
+        negative = True
+        text = text[1:-1].strip()
+
+    text = " ".join(_CURRENCY_TOKENS.sub(" ", text).split())
+    if _wrapped_in_parens(text):
+        negative = True
+        text = text[1:-1].strip()
+
+    if text.endswith(("-", "−")):
+        negative = True
+        text = text[:-1].strip()
+    if text.startswith("+"):
+        text = text[1:].strip()
+    elif text.startswith(("-", "−")):
+        negative = True
+        text = text[1:].strip()
+
+    if "," in text:
+        if not _THOUSANDS_AMOUNT.fullmatch(text):
+            return float("nan")
+        text = text.replace(",", "")
+    elif not _PLAIN_AMOUNT.fullmatch(text):
+        return float("nan")
+
+    return -float(text) if negative else float(text)
+
+
+def normalize_amounts(series: pd.Series) -> pd.Series:
+    """Parse amount text. An already-numeric column is left unchanged."""
+    if pd.api.types.is_numeric_dtype(series):
+        return series
+    return pd.to_numeric(series.map(parse_amount), errors="coerce")
+
+
 def transform_csv(input_path: str, output_path: Optional[str] = None) -> pd.DataFrame:
     """
     Transform merchant CSV into standardized Stripe-style format.
@@ -183,9 +273,11 @@ def transform_csv(input_path: str, output_path: Optional[str] = None) -> pd.Data
             # Find the original column that maps to this standard column
             orig_col = [k for k, v in column_mapping.items() if v == std_col][0]
             
-            # Special handling for evidence columns
+            # Special handling for evidence columns and currency-formatted amounts
             if std_col.startswith("Evidence_"):
                 standardized_data[std_col] = df[orig_col].apply(summarize_evidence)
+            elif std_col == "Amount":
+                standardized_data[std_col] = normalize_amounts(df[orig_col])
             else:
                 standardized_data[std_col] = df[orig_col]
         else:
