@@ -181,22 +181,81 @@ def summarize_evidence(value: Any) -> str:
     return value_str
 
 
-def transform_csv(df: pd.DataFrame) -> pd.DataFrame:
-    """Transform any CSV into standardized format with fuzzy matching and placeholders."""
-    # Create column mapping
+def resolve_column_sources(columns) -> Dict[str, Any]:
+    """Map each matched standard field to the input column that fills it.
+
+    Walks ``columns`` from left to right and fuzzy-matches each header.
+    The first header that matches a standard field wins, which is the same
+    rule ``transform_csv`` uses when several columns could fill one field.
+    Required fields with no match are omitted; those are filled with placeholders.
+    """
     column_mapping = {}
-    for input_col in df.columns:
+    for input_col in columns:
         matched = fuzzy_match_column(input_col, COLUMN_ALIASES)
         if matched:
             column_mapping[input_col] = matched
-    
+
+    sources = {}
+    for std_col in REQUIRED_COLUMNS:
+        if std_col in column_mapping.values():
+            sources[std_col] = [k for k, v in column_mapping.items() if v == std_col][0]
+    return sources
+
+
+def column_mapping_summary(columns) -> List[Dict[str, str]]:
+    """Describe how each required field was filled from ``columns``.
+
+    Each item is ``{"field": <required name>, "source": <input column>}``.
+    ``source`` is ``"placeholder"`` when no input column matched and the
+    field was filled with a default.
+    """
+    sources = resolve_column_sources(columns)
+    return [
+        {
+            "field": std_col,
+            "source": sources.get(std_col, "placeholder"),
+        }
+        for std_col in REQUIRED_COLUMNS
+    ]
+
+
+def render_column_mapping(columns) -> None:
+    """Show which upload columns mapped onto the standard fields."""
+    summary = column_mapping_summary(columns)
+    placeholder_count = sum(row["source"] == "placeholder" for row in summary)
+    if placeholder_count == 1:
+        label = "Column mapping — 1 field used a placeholder"
+    elif placeholder_count:
+        label = f"Column mapping — {placeholder_count} fields used placeholders"
+    else:
+        label = "Column mapping"
+
+    with st.expander(label, expanded=placeholder_count > 0):
+        st.dataframe(
+            pd.DataFrame(
+                {
+                    "Standard field": [row["field"] for row in summary],
+                    "Source": [row["source"] for row in summary],
+                }
+            ),
+            hide_index=True,
+        )
+        st.caption(
+            "Source is the column from your file. "
+            "placeholder means that field was missing and filled with a default."
+        )
+
+
+def transform_csv(df: pd.DataFrame) -> pd.DataFrame:
+    """Transform any CSV into standardized format with fuzzy matching and placeholders."""
+    sources = resolve_column_sources(df.columns)
+
     # Create new standardized DataFrame
     standardized_data = {}
     
     for std_col in REQUIRED_COLUMNS:
-        if std_col in column_mapping.values():
-            # Find the original column that maps to this standard column
-            orig_col = [k for k, v in column_mapping.items() if v == std_col][0]
+        if std_col in sources:
+            orig_col = sources[std_col]
             
             # Evidence links are summarized. Dates are normalized to YYYY-MM-DD.
             if std_col.startswith("Evidence_"):
@@ -490,6 +549,7 @@ if process_clicked:
         st.stop()
 
     # Auto-transform CSV to standardized format
+    source_columns = list(df.columns)
     with st.spinner("Standardizing CSV format..."):
         try:
             df = transform_csv(df)
@@ -497,6 +557,8 @@ if process_clicked:
         except Exception as e:
             st.error(f"CSV transformation failed: {e}")
             st.stop()
+
+    render_column_mapping(source_columns)
 
     try:
         with st.spinner("Processing disputes with AI..."):
