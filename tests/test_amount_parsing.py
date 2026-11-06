@@ -1,8 +1,8 @@
 """Merchant amount text should become real numbers.
 
 Covers currency symbols, thousands separators, accounting parentheses, and
-currency codes in ``transform_csv.py``. Already-numeric columns and the
-placeholder used for blank cells stay as they were.
+currency codes in ``transform_csv.py`` and the in-app transform. Already-numeric
+columns and the placeholder used for blank cells stay as they were.
 
 Run from the repo root:
 
@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pandas as pd
 
+import app
 import transform_csv
 
 
@@ -116,6 +117,46 @@ class AmountColumnTests(unittest.TestCase):
                 )
                 self.assertEqual(result.loc[0, "Notes"], "keep")
                 self.assertEqual(result.loc[1, "Notes"], "also")
+
+    def test_app_transform_parses_currency_text(self):
+        frame = pd.DataFrame(
+            {
+                "transaction_id": ["T1", "T2", "T3"],
+                "customer_name": ["Ada Lovelace", "Grace Hopper", "Alan Turing"],
+                "amount": ["$1,234.50", " 45.00 ", "not-a-number"],
+                "product": ["Analytical Engine", "Compiler", "Machine"],
+            }
+        )
+        result = app.transform_csv(frame)
+
+        self.assertEqual(len(result), 3)
+        self.assertTrue(pd.api.types.is_float_dtype(result["Amount"]))
+        self.assertAlmostEqual(float(result.iloc[0]["Amount"]), 1234.5)
+        self.assertAlmostEqual(float(result.iloc[1]["Amount"]), 45.0)
+        self.assertAlmostEqual(float(result.iloc[2]["Amount"]), app.DEFAULTS["Amount"])
+        self.assertFalse(pd.isna(result.iloc[2]["Amount"]))
+        self.assertEqual(result.iloc[0]["Transaction_ID"], "T1")
+        self.assertEqual(result.iloc[0]["Customer_Name"], "Ada Lovelace")
+        self.assertEqual(result.iloc[0]["Product"], "Analytical Engine")
+        self.assertEqual(result.iloc[2]["Customer_Name"], "Alan Turing")
+        self.assertEqual(result.iloc[2]["Product"], "Machine")
+
+    def test_app_transform_keeps_numeric_amounts(self):
+        frame = pd.DataFrame(
+            {
+                "amount": [19.99, 10],
+                "notes": ["keep", "also"],
+            }
+        )
+        result = app.transform_csv(frame)
+
+        pd.testing.assert_series_equal(
+            result["Amount"].reset_index(drop=True),
+            frame["amount"].reset_index(drop=True),
+            check_names=False,
+        )
+        self.assertEqual(result.loc[0, "Notes"], "keep")
+        self.assertEqual(result.loc[1, "Notes"], "also")
 
     def test_blank_cell_in_a_numeric_amount_column_still_uses_placeholder(self):
         csv_text = "amount,customer_name\n19.99,Ada Lovelace\n,Grace Hopper\n"
