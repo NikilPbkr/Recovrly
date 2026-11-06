@@ -8,6 +8,7 @@ Features:
 - Fuzzy column name matching
 - Automatic placeholder filling for missing fields
 - Amount values parsed from currency-formatted merchant exports
+- Date values normalized to YYYY-MM-DD
 - Evidence text summarization for PDF/image links
 - Clean, standardized output ready for Recoverly
 
@@ -18,7 +19,7 @@ Usage:
 import pandas as pd
 import sys
 import os
-from datetime import datetime
+from datetime import date, datetime
 from difflib import get_close_matches
 from typing import Dict, Any, Optional
 import re
@@ -233,6 +234,166 @@ def normalize_amounts(series: pd.Series) -> pd.Series:
     return pd.to_numeric(series.map(parse_amount), errors="coerce")
 
 
+# Month names are English on purpose. datetime's %b/%B follow the process
+# locale, so a French locale would reject "Jan". Numeric formats are tried in
+# this fixed order; each string matches at most one of them. Slash and dash
+# dates are US month-first ("02/01/2024" is February 1, not January 2).
+# Two-digit years use datetime's %y window (00-68 → 2000-2068, 69-99 → 1969-1999).
+_MONTHS = {
+    "jan": 1,
+    "january": 1,
+    "feb": 2,
+    "february": 2,
+    "mar": 3,
+    "march": 3,
+    "apr": 4,
+    "april": 4,
+    "may": 5,
+    "jun": 6,
+    "june": 6,
+    "jul": 7,
+    "july": 7,
+    "aug": 8,
+    "august": 8,
+    "sep": 9,
+    "sept": 9,
+    "september": 9,
+    "oct": 10,
+    "october": 10,
+    "nov": 11,
+    "november": 11,
+    "dec": 12,
+    "december": 12,
+}
+# A real ISO date, or the same date with a time we ignore. The clock and
+# offset are not interpreted, so the calendar date cannot shift.
+_ISO_DATE = re.compile(
+    r"^(\d{4})-(\d{2})-(\d{2})"
+    r"(?:[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$",
+    re.IGNORECASE,
+)
+_NAMED_MDY = re.compile(
+    r"^([A-Za-z]+)\s+(\d{1,2})(?:\s*,\s*|\s+)(\d{2,4})$"
+)
+_NAMED_DMY = re.compile(
+    r"^(\d{1,2})[-\s]+([A-Za-z]+)[-\s]+(\d{2,4})$"
+)
+_NUMERIC_FORMATS = (
+    "%m/%d/%Y",
+    "%m-%d-%Y",
+    "%Y/%m/%d",
+    "%Y-%m-%d",
+    "%m/%d/%y",
+    "%m-%d-%y",
+)
+
+
+def _format_ymd(year: int, month: int, day: int) -> Optional[str]:
+    """Return YYYY-MM-DD, or None when the calendar date does not exist."""
+    try:
+        return datetime(year, month, day).strftime("%Y-%m-%d")
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _expand_year(token: str) -> Optional[int]:
+    if len(token) == 4:
+        return int(token)
+    if len(token) == 2:
+        return datetime.strptime(token, "%y").year
+    return None
+
+
+def _parse_iso(text: str) -> Optional[str]:
+    match = _ISO_DATE.fullmatch(text)
+    if not match:
+        return None
+    formatted = _format_ymd(int(match.group(1)), int(match.group(2)), int(match.group(3)))
+    if formatted is None:
+        return None
+    # An exact YYYY-MM-DD value is returned as stored.
+    if len(text) == 10:
+        return text
+    return formatted
+
+
+def _parse_named(text: str) -> Optional[str]:
+    month_name = day = year = None
+    mdy = _NAMED_MDY.fullmatch(text)
+    if mdy:
+        month_name, day, year = mdy.group(1), mdy.group(2), mdy.group(3)
+    else:
+        dmy = _NAMED_DMY.fullmatch(text)
+        if dmy:
+            day, month_name, year = dmy.group(1), dmy.group(2), dmy.group(3)
+    if month_name is None or day is None or year is None:
+        return None
+    month = _MONTHS.get(month_name.lower())
+    expanded = _expand_year(year)
+    if month is None or expanded is None:
+        return None
+    return _format_ymd(expanded, month, int(day))
+
+
+def _parse_numeric(text: str) -> Optional[str]:
+    for fmt in _NUMERIC_FORMATS:
+        try:
+            parsed = datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+        return parsed.strftime("%Y-%m-%d")
+    return None
+
+
+def parse_date(value: Any) -> Optional[str]:
+    """Parse one merchant date into ``YYYY-MM-DD``.
+
+    Accepts US numeric dates (``01/15/2024``, ``1/15/24``, ``01-15-2024``),
+    year-first numbers (``2024/01/15``), ISO dates, English month names
+    (``Jan 15, 2024``, ``15-Jan-2024``), and ISO datetimes. A datetime keeps
+    its calendar date and drops the time. ``datetime`` and ``date`` values
+    are formatted the same way.
+
+    Blank or unparseable values return None so the existing Date placeholder
+    can fill them. A numeric string that cannot be a month, such as
+    ``15/01/2024``, is unparseable rather than swapped into day-first order.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        return None
+
+    if isinstance(value, (datetime, date)):
+        return _format_ymd(value.year, value.month, value.day)
+    if isinstance(value, (int, float)):
+        return None
+
+    text = str(value).replace("\u00a0", " ").replace("\u202f", " ").strip()
+    if not text:
+        return None
+
+    for parser in (_parse_iso, _parse_named, _parse_numeric):
+        parsed = parser(text)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def normalize_dates(series: pd.Series) -> pd.Series:
+    """Format a Date column as ``YYYY-MM-DD`` strings.
+
+    A datetime column uses its calendar date. Text is parsed cell by cell.
+    Blank and unparseable cells stay missing so placeholder fill can replace
+    them. An exact ``YYYY-MM-DD`` value is left unchanged.
+    """
+    if pd.api.types.is_datetime64_any_dtype(series):
+        return series.dt.strftime("%Y-%m-%d")
+    return series.map(parse_date)
+
+
 def transform_csv(input_path: str, output_path: Optional[str] = None) -> pd.DataFrame:
     """
     Transform merchant CSV into standardized Stripe-style format.
@@ -273,11 +434,13 @@ def transform_csv(input_path: str, output_path: Optional[str] = None) -> pd.Data
             # Find the original column that maps to this standard column
             orig_col = [k for k, v in column_mapping.items() if v == std_col][0]
             
-            # Special handling for evidence columns and currency-formatted amounts
+            # Evidence links are summarized. Amounts and dates are normalized.
             if std_col.startswith("Evidence_"):
                 standardized_data[std_col] = df[orig_col].apply(summarize_evidence)
             elif std_col == "Amount":
                 standardized_data[std_col] = normalize_amounts(df[orig_col])
+            elif std_col == "Date":
+                standardized_data[std_col] = normalize_dates(df[orig_col])
             else:
                 standardized_data[std_col] = df[orig_col]
         else:

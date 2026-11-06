@@ -19,6 +19,8 @@ import streamlit as st
 from dotenv import load_dotenv
 from openai import OpenAI
 
+from transform_csv import normalize_dates
+
 # -------------------------
 # App & environment setup
 # -------------------------
@@ -196,9 +198,11 @@ def transform_csv(df: pd.DataFrame) -> pd.DataFrame:
             # Find the original column that maps to this standard column
             orig_col = [k for k, v in column_mapping.items() if v == std_col][0]
             
-            # Special handling for evidence columns
+            # Evidence links are summarized. Dates are normalized to YYYY-MM-DD.
             if std_col.startswith("Evidence_"):
                 standardized_data[std_col] = df[orig_col].apply(summarize_evidence)
+            elif std_col == "Date":
+                standardized_data[std_col] = normalize_dates(df[orig_col])
             else:
                 standardized_data[std_col] = df[orig_col]
         else:
