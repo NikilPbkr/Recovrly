@@ -19,7 +19,13 @@ import streamlit as st
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from transform_csv import normalize_amounts, normalize_dates
+from transform_csv import (
+    CsvInputError,
+    MALFORMED_CSV_MESSAGE,
+    load_merchant_csv,
+    normalize_amounts,
+    normalize_dates,
+)
 
 # -------------------------
 # App & environment setup
@@ -31,6 +37,11 @@ load_dotenv()  # Load OPENAI_API_KEY from .env if present
 
 MISSING_API_KEY_MESSAGE = (
     "OPENAI_API_KEY not found. Add it to a .env file in this folder or export it in your shell."
+)
+NO_MATCHING_COLUMNS_MESSAGE = (
+    "None of the columns in this file match a chargeback field "
+    "(for example amount, date, customer, or reason code). "
+    "Check the header row and try again."
 )
 
 # Built on the first API call. Importing this module must not require a key.
@@ -545,9 +556,19 @@ if process_clicked:
         st.stop()
 
     try:
-        df = pd.read_csv(uploaded)
-    except Exception as e:
-        st.error(f"Could not read CSV: {e}")
+        df = load_merchant_csv(uploaded)
+    except CsvInputError as exc:
+        st.error(str(exc))
+        st.stop()
+    except Exception:
+        st.error(MALFORMED_CSV_MESSAGE)
+        st.stop()
+
+    # A file with no recognized headers would otherwise become an all-placeholder
+    # table and be sent to the model. Partial matches still go through; missing
+    # fields keep their placeholders and show up in the column mapping.
+    if not resolve_column_sources(df.columns):
+        st.error(NO_MATCHING_COLUMNS_MESSAGE)
         st.stop()
 
     # Auto-transform CSV to standardized format
