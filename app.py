@@ -19,7 +19,7 @@ import streamlit as st
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from transform_csv import normalize_dates
+from transform_csv import normalize_amounts, normalize_dates
 
 # -------------------------
 # App & environment setup
@@ -257,9 +257,11 @@ def transform_csv(df: pd.DataFrame) -> pd.DataFrame:
         if std_col in sources:
             orig_col = sources[std_col]
             
-            # Evidence links are summarized. Dates are normalized to YYYY-MM-DD.
+            # Evidence links are summarized. Amounts and dates are normalized.
             if std_col.startswith("Evidence_"):
                 standardized_data[std_col] = df[orig_col].apply(summarize_evidence)
+            elif std_col == "Amount":
+                standardized_data[std_col] = normalize_amounts(df[orig_col])
             elif std_col == "Date":
                 standardized_data[std_col] = normalize_dates(df[orig_col])
             else:
