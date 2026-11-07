@@ -118,7 +118,7 @@ Order ID,Cardholder Name,Client Email,Created At,Charge Amount,Item Description,
 ORD-100,Ada Lovelace,ada@example.com,01/15/2024,"$1,234.50",Analytical Engine,Product Not Received,https://cdn.example.com/receipt.pdf,1Z999,VIP account
 ```
 
-`transform_csv.py` turns that row into `Transaction_ID` `ORD-100`, `Date` `2024-01-15`, `Amount` `1234.5`, `Evidence_Receipt` `PDF document provided: https://cdn.example.com/receipt.pdf`, and `Evidence_Shipping` `1Z999`. Columns that were not in the file are filled with the placeholders below. The app applies the same column matching, date formatting, evidence summaries, and placeholders. It does not parse currency-formatted amounts; see [Amounts](#amounts).
+Both the app and `transform_csv.py` turn that row into `Transaction_ID` `ORD-100`, `Date` `2024-01-15`, `Amount` `1234.5`, `Evidence_Receipt` `PDF document provided: https://cdn.example.com/receipt.pdf`, and `Evidence_Shipping` `1Z999`. Columns that were not in the file are filled with the placeholders below. Both parse currency amounts; see [Amounts](#amounts).
 
 ### Recognized columns
 
@@ -184,9 +184,9 @@ A value that is not one of those forms is missing and receives the date placehol
 
 ### Amounts
 
-`transform_csv.py` parses amount text into a float. The Streamlit upload path does not. It keeps the uploaded Amount values, and the win-rate calculation later reads each one with `float()`. `$1,234.50` therefore stays text in the app and counts as `0.0` when the dispute is scored. Upload plain numbers, or standardize with the command-line tool and upload that file.
+Both the app and `transform_csv.py` parse currency amounts into a float. `$1,234.50` becomes `1234.5` on either path, and that number is what the win-rate calculation uses.
 
-The command-line parser:
+The parser:
 
 - Leaves an already-numeric column unchanged. Plain numeric text such as `19.99` or `10` becomes a float.
 - Removes `$`, `€`, `£`, `¥`, and `US$`.
@@ -215,7 +215,7 @@ python transform_csv.py input.csv
 python transform_csv.py input.csv output.csv
 ```
 
-With one argument, the file is written next to the input as `<input>_standardized.csv`. This is the path that parses currency-formatted amounts. The app repeats column matching, date normalization, evidence summaries, and placeholder fill when you click **Process**.
+With one argument, the file is written next to the input as `<input>_standardized.csv`. The app applies the same column matching, currency parsing, date normalization, evidence summaries, and placeholder fill when you click **Process**.
 
 ---
 
