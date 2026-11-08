@@ -10,6 +10,7 @@ Features:
 - Amount values parsed from currency-formatted merchant exports
 - Date values normalized to YYYY-MM-DD
 - Evidence text summarization for PDF/image links
+- Clear messages for empty, header-only, and unreadable files
 - Clean, standardized output ready for Recoverly
 
 Usage:
@@ -19,10 +20,33 @@ Usage:
 import pandas as pd
 import sys
 import os
+import io
 from datetime import date, datetime
 from difflib import get_close_matches
 from typing import Dict, Any, Optional
 import re
+
+class CsvInputError(Exception):
+    """A merchant CSV that cannot be transformed.
+
+    ``str(error)`` is safe to show to the person who uploaded the file.
+    """
+
+
+EMPTY_CSV_MESSAGE = (
+    "This CSV is empty. It needs a header row and at least one dispute."
+)
+HEADER_ONLY_CSV_MESSAGE = (
+    "This CSV has a header row but no data rows. Add at least one dispute and try again."
+)
+NOT_UTF8_MESSAGE = (
+    "This file is not valid UTF-8. Save the CSV as UTF-8 and try again."
+)
+MALFORMED_CSV_MESSAGE = (
+    "This file could not be read as a CSV. "
+    "Check that it is comma-separated, has a header row, and that any quotes are closed."
+)
+
 
 # Standard column names required by Recoverly
 REQUIRED_COLUMNS = [
@@ -394,6 +418,71 @@ def normalize_dates(series: pd.Series) -> pd.Series:
     return series.map(parse_date)
 
 
+def _source_bytes(source: Any) -> bytes:
+    """Read a filesystem path or an uploaded file as bytes."""
+    if isinstance(source, (str, os.PathLike)):
+        with open(source, "rb") as handle:
+            return handle.read()
+
+    getvalue = getattr(source, "getvalue", None)
+    if callable(getvalue):
+        data = getvalue()
+    else:
+        read = getattr(source, "read", None)
+        if not callable(read):
+            raise TypeError("CSV source must be a path or a binary file")
+        data = read()
+
+    if data is None:
+        return b""
+    if isinstance(data, str):
+        return data.encode("utf-8")
+    return bytes(data)
+
+
+def load_merchant_csv(source: Any) -> pd.DataFrame:
+    """Read a merchant CSV from a path or an uploaded file.
+
+    ``source`` is a filesystem path or a binary file-like object, such as a
+    Streamlit upload. A UTF-8 BOM is accepted. Raises ``CsvInputError`` with
+    a short message when the file is empty, has a header but no rows, is not
+    UTF-8, or is not a readable CSV. Callers show that message instead of a
+    traceback.
+
+    A file whose headers match nothing is still returned. The transformer
+    fills those fields with placeholders, which is the existing contract.
+    """
+    try:
+        raw = _source_bytes(source)
+    except FileNotFoundError:
+        raise
+    except OSError as exc:
+        detail = exc.strerror or "unknown error"
+        raise CsvInputError(f"This file could not be read ({detail}).") from None
+
+    if not raw.strip(b" \t\r\n\x0b\x0c"):
+        raise CsvInputError(EMPTY_CSV_MESSAGE)
+
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise CsvInputError(NOT_UTF8_MESSAGE) from None
+
+    if not text.strip():
+        raise CsvInputError(EMPTY_CSV_MESSAGE)
+
+    try:
+        frame = pd.read_csv(io.StringIO(text))
+    except pd.errors.EmptyDataError:
+        raise CsvInputError(EMPTY_CSV_MESSAGE) from None
+    except (pd.errors.ParserError, UnicodeError):
+        raise CsvInputError(MALFORMED_CSV_MESSAGE) from None
+
+    if len(frame) == 0:
+        raise CsvInputError(HEADER_ONLY_CSV_MESSAGE)
+    return frame
+
+
 def transform_csv(input_path: str, output_path: Optional[str] = None) -> pd.DataFrame:
     """
     Transform merchant CSV into standardized Stripe-style format.
@@ -404,13 +493,19 @@ def transform_csv(input_path: str, output_path: Optional[str] = None) -> pd.Data
     
     Returns:
         Transformed DataFrame
+
+    Exits with status 1, and no traceback, when the file is missing, empty,
+    header-only, not UTF-8, or not a readable CSV.
     """
     print(f"📂 Loading CSV: {input_path}")
-    
+
     try:
-        df = pd.read_csv(input_path)
-    except Exception as e:
-        print(f"❌ Error reading CSV: {e}")
+        df = load_merchant_csv(input_path)
+    except CsvInputError as exc:
+        print(f"❌ {exc}")
+        sys.exit(1)
+    except FileNotFoundError:
+        print(f"❌ Error: File '{input_path}' not found")
         sys.exit(1)
     
     print(f"✓ Loaded {len(df)} rows with {len(df.columns)} columns")
