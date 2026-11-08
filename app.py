@@ -257,6 +257,39 @@ def render_column_mapping(columns) -> None:
         )
 
 
+def results_summary(results: pd.DataFrame) -> Dict[str, Any]:
+    """Count Fight vs Don't Fight and sum potential recovery.
+
+    ``fight`` and ``dont_fight`` count rows whose Recommendation is exactly
+    those labels. ``total_potential_recovery`` is the sum of Potential_Recovery
+    on every processed row, rounded to cents. A row with any other
+    recommendation is left out of both counts and still included in the total.
+    """
+    recommendations = results["Recommendation"]
+    total = results["Potential_Recovery"].sum()
+    return {
+        "fight": int((recommendations == "Fight").sum()),
+        "dont_fight": int((recommendations == "Don't Fight").sum()),
+        "total_potential_recovery": round(float(total), 2),
+    }
+
+
+def render_results_summary(results: pd.DataFrame) -> None:
+    """Show how many rows to fight and the batch's potential recovery."""
+    summary = results_summary(results)
+    st.subheader("Batch summary")
+    fight_col, skip_col, recovery_col = st.columns(3)
+    fight_col.metric("Fight", f"{summary['fight']:,}")
+    skip_col.metric("Don't Fight", f"{summary['dont_fight']:,}")
+    recovery_col.metric(
+        "Potential recovery",
+        f"${summary['total_potential_recovery']:,.2f}",
+    )
+    st.caption(
+        "Potential recovery is the sum of Potential Recovery on the processed rows."
+    )
+
+
 def transform_csv(df: pd.DataFrame) -> pd.DataFrame:
     """Transform any CSV into standardized format with fuzzy matching and placeholders."""
     sources = resolve_column_sources(df.columns)
@@ -592,7 +625,9 @@ if process_clicked:
 
     # Display token usage
     st.info(f"📊 API Usage: {st.session_state.total_tokens:,} tokens used for this batch")
-    
+
+    render_results_summary(results_df)
+
     st.subheader("Preview")
     preview_cols = [
         "Transaction_ID",
