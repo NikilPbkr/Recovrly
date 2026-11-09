@@ -87,6 +87,8 @@ The page loads without an API key. If `OPENAI_API_KEY` is missing, the app shows
 
 **Process** stops with that same message until the key is set. The OpenAI client is created on the first API call, not when the app starts, so importing the app does not require a key.
 
+If a call to OpenAI fails, the page explains what happened and fills that step from a fallback. A timeout, a rejected key, a rate limit, a connection problem, and a response the app cannot read each get their own message. The same message is shown once even when several batches fail for the same reason. The raw error is left off the page, because it can include request details or part of the API key. Results still appear, and the fallback text is what gets downloaded for the step that failed. A call that succeeds is unchanged: the model ranks the evidence and writes the argument.
+
 ---
 
 ## Environment variables

@@ -17,7 +17,15 @@ from difflib import get_close_matches
 import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
-from openai import OpenAI
+from openai import (
+    APIConnectionError,
+    APIStatusError,
+    APITimeoutError,
+    AuthenticationError,
+    OpenAI,
+    PermissionDeniedError,
+    RateLimitError,
+)
 
 from transform_csv import (
     CsvInputError,
@@ -68,6 +76,10 @@ if not os.getenv("OPENAI_API_KEY"):
 # Cache for storing repeated AI responses
 if 'ai_cache' not in st.session_state:
     st.session_state.ai_cache = {}
+
+# Plain-language API warnings already shown during this run.
+if "api_failure_notices" not in st.session_state:
+    st.session_state.api_failure_notices = []
 
 # Token usage tracking
 if 'total_tokens' not in st.session_state:
@@ -340,6 +352,60 @@ def _generate_cache_key(prompt: str) -> str:
     return hashlib.md5(prompt.encode()).hexdigest()
 
 
+def _api_failure_reason(exc: BaseException) -> str:
+    """One or two sentences naming what the user can do next.
+
+    The exception text is never included. OpenAI errors can carry request
+    bodies and part of the API key.
+    """
+    if isinstance(exc, APITimeoutError):
+        return "The OpenAI request timed out. Try again, or process fewer disputes."
+    if isinstance(exc, APIConnectionError):
+        return "The app could not reach OpenAI. Check your network connection and try again."
+    if isinstance(exc, (AuthenticationError, PermissionDeniedError)):
+        return (
+            "OpenAI rejected the API key. "
+            "Check OPENAI_API_KEY in your .env file or shell, then try again."
+        )
+    if isinstance(exc, RateLimitError):
+        return "OpenAI rate-limited the request. Wait a moment and try again."
+    if isinstance(
+        exc, (json.JSONDecodeError, KeyError, TypeError, IndexError, AttributeError)
+    ):
+        return "OpenAI returned a response this app could not read. Try again."
+    if isinstance(exc, APIStatusError):
+        code = getattr(exc, "status_code", None)
+        if isinstance(code, int):
+            return f"OpenAI returned an error (HTTP {code}). Try again in a moment."
+        return "OpenAI returned an error. Try again in a moment."
+    return "Something went wrong while calling OpenAI. Try again."
+
+
+def api_failure_message(exc: BaseException, action: str) -> str:
+    """Plain-language warning for one failed model step.
+
+    ``action`` names the step that fell back, such as ``"Evidence ranking"``.
+    """
+    return (
+        f"{action} could not be completed, so a fallback was used. "
+        f"{_api_failure_reason(exc)}"
+    )
+
+
+def report_api_failure(exc: BaseException, action: str) -> None:
+    """Warn once per distinct failure during this run.
+
+    Several batches often fail for the same reason. Repeating the warning
+    for every batch hides the explanation.
+    """
+    message = api_failure_message(exc, action)
+    notices = st.session_state.setdefault("api_failure_notices", [])
+    if message in notices:
+        return
+    notices.append(message)
+    st.warning(message)
+
+
 def batch_rank_evidence(disputes: List[Dict[str, Any]]) -> List[List[str]]:
     """Batch process evidence ranking for multiple disputes in a single API call.
     Returns list of evidence rankings in same order as input disputes.
@@ -400,8 +466,8 @@ Output ONLY valid JSON in this exact format:
         st.session_state.ai_cache[cache_key] = rankings
         return rankings
         
-    except Exception as e:
-        st.warning(f"Batch ranking failed: {e}. Using fallback.")
+    except Exception as exc:
+        report_api_failure(exc, "Evidence ranking")
         # Fallback: return default for all
         return [["Shipping", "Receipt"] for _ in disputes]
 
@@ -462,8 +528,8 @@ Output ONLY valid JSON in this exact format:
         st.session_state.ai_cache[cache_key] = arguments
         return arguments
         
-    except Exception as e:
-        st.warning(f"Batch argument generation failed: {e}. Using fallback.")
+    except Exception as exc:
+        report_api_failure(exc, "Argument generation")
         # Fallback: return generic message
         return [f"Dispute argument generation failed." for _ in disputes]
 
@@ -509,8 +575,8 @@ def process_disputes(df: pd.DataFrame, n_rows: int, batch_size: int = 2) -> pd.D
             
             # Batch API call for argument generation
             arguments = batch_generate_arguments(batch, evidence_lists)
-        except Exception as e:
-            st.warning(f"Batch {i//batch_size + 1} processing error: {e}. Using fallback for this batch.")
+        except Exception as exc:
+            report_api_failure(exc, "Dispute processing")
             # Fallback for failed batch
             evidence_lists = [["Shipping", "Receipt"] for _ in batch]
             arguments = ["Dispute argument could not be generated due to processing error." for _ in batch]
@@ -616,6 +682,9 @@ if process_clicked:
 
     render_column_mapping(source_columns)
 
+    # Start fresh so a second click can warn again, and so a timeout across
+    # several batches shows the explanation once.
+    st.session_state.api_failure_notices = []
     try:
         with st.spinner("Processing disputes with AI..."):
             results_df = process_disputes(df, int(num_rows))
