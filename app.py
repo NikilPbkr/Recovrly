@@ -8,6 +8,7 @@ AI Chargeback Dispute Optimizer (Streamlit)
 
 import os
 import json
+import math
 import time
 import hashlib
 from typing import List, Dict, Any, Optional
@@ -128,10 +129,18 @@ DEFAULTS = {
 # -------------------------
 
 def _safe_float(x):
+    """Return ``x`` as a float. Unusable values become 0.0.
+
+    ``float`` accepts NaN and infinity without raising, so those are checked
+    separately. A negative number is kept; scoring treats it as no amount.
+    """
     try:
-        return float(x)
+        value = float(x)
     except Exception:
         return 0.0
+    if not math.isfinite(value):
+        return 0.0
+    return value
 
 
 def fuzzy_match_column(input_col: str, standard_cols: Dict[str, list]) -> Optional[str]:
@@ -468,6 +477,74 @@ Output ONLY valid JSON in this exact format:
         return [f"Dispute argument generation failed." for _ in disputes]
 
 
+# First matching substring wins. Compared case-insensitively, in this order.
+# "unauthorized" therefore matches before "Unauthorized Transaction", and both
+# "Fraud" and "fraud" are the same check. Unknown codes stay at 0.50.
+REASON_CODE_BASE_RATES = {
+    "Fraud": 0.35,
+    "fraud": 0.35,
+    "unauthorized": 0.30,
+    "Product Not Received": 0.55,
+    "not received": 0.55,
+    "Product Unacceptable": 0.45,
+    "not as described": 0.45,
+    "Duplicate Processing": 0.70,
+    "duplicate": 0.70,
+    "Credit Not Processed": 0.60,
+    "credit": 0.60,
+    "Unauthorized Transaction": 0.30,
+    "canceled": 0.55,
+    "subscription": 0.55,
+}
+
+
+def _reason_base_rate(reason: Any) -> float:
+    """Base win rate for a reason code. Unknown codes use 0.50."""
+    reason_str = str(reason).lower()
+    for key, rate in REASON_CODE_BASE_RATES.items():
+        if key.lower() in reason_str:
+            return rate
+    return 0.50
+
+
+def _scoring_amount(amount: float) -> float:
+    """Positive finite dollars that can add a penalty or a recovery.
+
+    Zero recovers nothing. A negative amount must not be used raw:
+    ``min(0.05, amount / 10000)`` is then negative, subtracting it raises
+    the win rate, and Potential_Recovery comes out negative. NaN and
+    infinity are not amounts; they score like zero.
+    """
+    value = _safe_float(amount)
+    if value <= 0:
+        return 0.0
+    return value
+
+
+def estimate_dispute_outcome(amount: float, reason: Any, top_evidence: List[str]) -> Dict[str, Any]:
+    """Win rate, potential recovery, and Fight / Don't Fight for one dispute.
+
+    Win rate is the reason-code base rate, plus 0.08 for each ranked evidence
+    item, minus ``min(0.05, amount / 10000)``. It is clamped to 0.15–0.95 and
+    rounded to two decimals. Potential recovery is that rate times the amount,
+    rounded to cents. Fight means the win rate is at least 0.40.
+
+    Positive amounts use that formula unchanged. Zero, negative, and
+    non-finite amounts add no penalty and no recovery, so a credit or a
+    missing amount cannot look easier to win than a $0 dispute.
+    """
+    scored_amount = _scoring_amount(amount)
+    evidence_boost = len(top_evidence) * 0.08
+    amount_penalty = min(0.05, scored_amount / 10000)
+    raw_rate = _reason_base_rate(reason) + evidence_boost - amount_penalty
+    win_rate = round(min(0.95, max(0.15, raw_rate)), 2)
+    return {
+        "win_rate": win_rate,
+        "potential_recovery": round(scored_amount * win_rate, 2),
+        "recommendation": "Fight" if win_rate >= 0.40 else "Don't Fight",
+    }
+
+
 def process_disputes(df: pd.DataFrame, n_rows: int, batch_size: int = 2) -> pd.DataFrame:
     """Process disputes with batched API calls for efficiency.
     
@@ -517,45 +594,18 @@ def process_disputes(df: pd.DataFrame, n_rows: int, batch_size: int = 2) -> pd.D
         
         # Calculate metrics for each dispute in batch
         for dispute, top_evidence, argument in zip(batch, evidence_lists, arguments):
-            reason_code_weights = {
-                "Fraud": 0.35,
-                "fraud": 0.35,
-                "unauthorized": 0.30,
-                "Product Not Received": 0.55,
-                "not received": 0.55,
-                "Product Unacceptable": 0.45,
-                "not as described": 0.45,
-                "Duplicate Processing": 0.70,
-                "duplicate": 0.70,
-                "Credit Not Processed": 0.60,
-                "credit": 0.60,
-                "Unauthorized Transaction": 0.30,
-                "canceled": 0.55,
-                "subscription": 0.55,
-            }
-            
-            # Flexible matching for reason codes
-            reason_str = str(dispute["reason"]).lower()
-            base_rate = 0.50  # default
-            for key, rate in reason_code_weights.items():
-                if key.lower() in reason_str:
-                    base_rate = rate
-                    break
-            evidence_boost = len(top_evidence) * 0.08
-            amount_penalty = min(0.05, dispute["amount"] / 10000)
-            win_rate = round(min(0.95, max(0.15, base_rate + evidence_boost - amount_penalty)), 2)
-            potential_recovery = round(dispute["amount"] * win_rate, 2)
-            recommendation = "Fight" if win_rate >= 0.40 else "Don't Fight"
-
+            outcome = estimate_dispute_outcome(
+                dispute["amount"], dispute["reason"], top_evidence
+            )
             results.append(
                 {
                     "Transaction_ID": dispute["transaction_id"],
                     "Reason_Code": dispute["reason"],
-                    "Recommendation": recommendation,
+                    "Recommendation": outcome["recommendation"],
                     "Top_Evidence": ", ".join(top_evidence),
                     "AI_Argument": argument,
-                    "Simulated_Win_Rate": win_rate,
-                    "Potential_Recovery": potential_recovery,
+                    "Simulated_Win_Rate": outcome["win_rate"],
+                    "Potential_Recovery": outcome["potential_recovery"],
                 }
             )
         
