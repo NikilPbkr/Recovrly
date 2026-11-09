@@ -96,7 +96,7 @@ The page loads without an API key. If `OPENAI_API_KEY` is missing, the app shows
 | `OPENAI_API_KEY` | Required to process disputes. The client reads it when the first API call runs. |
 | `CHARGEBACK_MODEL` | Optional. Chat model for ranking and argument generation. Defaults to `gpt-3.5-turbo`. |
 
-On startup the app loads a `.env` file from the working directory (or a parent directory, if that is where `python-dotenv` finds it). You can also export the variables in the shell before starting the app. A variable already set in the environment is left as-is. `.env` is gitignored.
+On startup the app loads a `.env` file from the working directory (or a parent directory, if that is where `python-dotenv` finds it). Copy `.env.example` to `.env` and set the key. You can also export the variables in the shell before starting the app. A variable already set in the environment is left as-is. `.env` is gitignored.
 
 ```bash
 OPENAI_API_KEY=sk-...
