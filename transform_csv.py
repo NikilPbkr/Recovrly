@@ -11,6 +11,7 @@ Features:
 - Date values normalized to YYYY-MM-DD
 - Evidence text summarization for PDF/image links
 - Clear messages for empty, header-only, and unreadable files
+- Duplicate transaction IDs called out when running the CLI
 - Clean, standardized output ready for Recoverly
 
 Usage:
@@ -483,6 +484,100 @@ def load_merchant_csv(source: Any) -> pd.DataFrame:
     return frame
 
 
+def _missing_transaction_id(value: Any) -> bool:
+    """True when a cell has no merchant transaction ID.
+
+    Empty and whitespace-only text counts as missing. Pandas also reads a
+    blank CSV cell as NaN, and that is missing too.
+    """
+    if isinstance(value, str):
+        return value.strip() == ""
+    if value is None:
+        return True
+    try:
+        return bool(pd.isna(value))
+    except (TypeError, ValueError):
+        return False
+
+
+def _transaction_id_label(value: Any) -> str:
+    """Text used to compare and report one real transaction ID.
+
+    A whole-number float is shown without a trailing ``.0``. Pandas stores
+    an ID column as float when another cell in that column is blank, so a
+    merchant ID of ``1001`` would otherwise be reported as ``1001.0``.
+    """
+    if isinstance(value, bool):
+        return str(value)
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value).strip()
+
+
+def _placeholder_transaction_rows(source: Optional[pd.Series], row_count: int) -> set:
+    """Row positions whose Transaction_ID did not come from the merchant.
+
+    A missing column means every output ID is a generated placeholder.
+    A blank cell in a present column is not a real ID either. Those rows
+    must not be compared, or the fills would look like duplicates.
+    """
+    if source is None:
+        return set(range(row_count))
+    return {
+        index
+        for index, value in enumerate(source.tolist())
+        if _missing_transaction_id(value)
+    }
+
+
+def find_duplicate_transaction_ids(
+    ids: Any,
+    placeholder_rows: Optional[Any] = None,
+) -> list:
+    """Return real transaction IDs that appear on more than one row.
+
+    ``ids`` is a Transaction_ID column in file order. ``placeholder_rows``
+    holds positions to ignore: every row when the ID column was missing, and
+    blank cells when it was present. Generated placeholders such as
+    ``TXN_000000`` are ignored even when every row was given the same fill.
+    A merchant-supplied ID is still reported when it is repeated, including
+    an ID that happens to use that placeholder spelling.
+
+    Each item is ``(transaction_id, line_numbers)``. Line numbers count the
+    header as line 1, matching the merchant file. IDs are in first-seen order.
+    """
+    skipped = set(placeholder_rows or ())
+    rows_for_id: Dict[str, list] = {}
+    order = []
+    for index, value in enumerate(list(ids)):
+        if index in skipped or _missing_transaction_id(value):
+            continue
+        label = _transaction_id_label(value)
+        if not label:
+            continue
+        if label not in rows_for_id:
+            rows_for_id[label] = []
+            order.append(label)
+        # Header is line 1, so the first data row is line 2.
+        rows_for_id[label].append(index + 2)
+    return [
+        (label, rows_for_id[label])
+        for label in order
+        if len(rows_for_id[label]) > 1
+    ]
+
+
+def format_duplicate_transaction_ids(duplicates: list) -> str:
+    """CLI text naming each repeated ID, how often it appears, and its rows."""
+    lines = [f"  ⚠️  Duplicate Transaction_IDs ({len(duplicates)}):"]
+    for txn_id, rows in duplicates:
+        row_text = ", ".join(str(row) for row in rows)
+        lines.append(
+            f"      {txn_id} is repeated {len(rows)} times (lines {row_text})"
+        )
+    return "\n".join(lines)
+
+
 def transform_csv(input_path: str, output_path: Optional[str] = None) -> pd.DataFrame:
     """
     Transform merchant CSV into standardized Stripe-style format.
@@ -496,6 +591,10 @@ def transform_csv(input_path: str, output_path: Optional[str] = None) -> pd.Data
 
     Exits with status 1, and no traceback, when the file is missing, empty,
     header-only, not UTF-8, or not a readable CSV.
+
+    When a real Transaction_ID appears on more than one row, prints those IDs
+    before the completion line. Blank cells and generated placeholders are
+    not counted. Repeated rows are still written to the output.
     """
     print(f"📂 Loading CSV: {input_path}")
 
@@ -523,11 +622,16 @@ def transform_csv(input_path: str, output_path: Optional[str] = None) -> pd.Data
     
     # Create new standardized DataFrame
     standardized_data = {}
+    # None means the merchant file had no transaction-ID column, so every
+    # output ID is a generated placeholder rather than a real ID.
+    transaction_source = None
     
     for std_col in REQUIRED_COLUMNS:
         if std_col in column_mapping.values():
             # Find the original column that maps to this standard column
             orig_col = [k for k, v in column_mapping.items() if v == std_col][0]
+            if std_col == "Transaction_ID":
+                transaction_source = df[orig_col]
             
             # Evidence links are summarized. Amounts and dates are normalized.
             if std_col.startswith("Evidence_"):
@@ -562,6 +666,18 @@ def transform_csv(input_path: str, output_path: Optional[str] = None) -> pd.Data
     
     # Ensure correct column order
     result_df = result_df[REQUIRED_COLUMNS]
+
+    # Report repeated merchant IDs. Rows are kept either way; this only
+    # tells the CLI user which real IDs were copied more than once.
+    duplicates = find_duplicate_transaction_ids(
+        result_df["Transaction_ID"],
+        placeholder_rows=_placeholder_transaction_rows(
+            transaction_source, len(result_df)
+        ),
+    )
+    if duplicates:
+        print()
+        print(format_duplicate_transaction_ids(duplicates))
     
     # Save to output
     if output_path is None:
