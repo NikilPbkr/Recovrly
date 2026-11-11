@@ -415,6 +415,19 @@ def report_api_failure(exc: BaseException, action: str) -> None:
     st.warning(message)
 
 
+def _evidence_labels(ranking: Any) -> List[str]:
+    """First two evidence labels from one model ranking.
+
+    The model is asked for a JSON list. A string must not be sliced: that
+    keeps the first two characters and scores each one as evidence, which
+    can change Fight / Don't Fight. Raising uses the same batch fallback as
+    any other unreadable ranking.
+    """
+    if isinstance(ranking, str) or not isinstance(ranking, (list, tuple)):
+        raise TypeError("evidence ranking must be a list")
+    return list(ranking)[:2]
+
+
 def batch_rank_evidence(disputes: List[Dict[str, Any]]) -> List[List[str]]:
     """Batch process evidence ranking for multiple disputes in a single API call.
     Returns list of evidence rankings in same order as input disputes.
@@ -463,7 +476,7 @@ Output ONLY valid JSON in this exact format:
         st.session_state.total_tokens += response.usage.total_tokens
         
         result = json.loads(response.choices[0].message.content)
-        rankings = [r["evidence_ranking"][:2] for r in result["rankings"]]
+        rankings = [_evidence_labels(r["evidence_ranking"]) for r in result["rankings"]]
         
         # Ensure we have the right number of results
         if len(rankings) != len(disputes):
