@@ -79,7 +79,7 @@ From the repository root:
 streamlit run app.py
 ```
 
-Upload a CSV, choose how many disputes to process (1–50, default 10), and click **Process**. The app standardizes the file, shows which uploaded columns mapped to standard fields, ranks evidence, writes a dispute argument, and estimates a win rate. Download the results as `AI_Dispute_Arguments.csv`.
+Upload a CSV, choose how many disputes to process (1–50, default 10), and click **Process**. The app standardizes the file, shows which uploaded columns mapped to standard fields, ranks evidence, writes a dispute argument, and estimates a win rate. The results table lists Fight recommendations first, highest potential recovery at the top, and shows the win rate as a percent and potential recovery in dollars. Download the results as `AI_Dispute_Arguments.csv` (processed order, with the win rate kept as a fraction from 0 to 1).
 
 The page loads without an API key. If `OPENAI_API_KEY` is missing, the app shows:
 

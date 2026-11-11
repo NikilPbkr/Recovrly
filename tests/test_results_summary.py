@@ -145,15 +145,7 @@ class ResultsSummaryPreviewTests(unittest.TestCase):
             )
         )
         self.assertEqual(at.download_button[0].label, "Download CSV")
-        self.assertEqual(list(preview.columns), [
-            "Transaction_ID",
-            "Reason_Code",
-            "Recommendation",
-            "Top_Evidence",
-            "AI_Argument",
-            "Simulated_Win_Rate",
-            "Potential_Recovery",
-        ])
+        self.assertEqual(list(preview.columns), list(app.RESULTS_PREVIEW_COLUMNS))
 
 
 def _frame(rows):
