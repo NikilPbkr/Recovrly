@@ -685,7 +685,7 @@ def transform_csv(input_path: str, output_path: Optional[str] = None) -> pd.Data
         output_path = f"{base_name}_standardized.csv"
     
     result_df.to_csv(output_path, index=False)
-    print(f"\n✅ Transformation complete!")
+    print("\n✅ Transformation complete!")
     print(f"📄 Output saved to: {output_path}")
     print(f"📊 Total rows: {len(result_df)}")
     

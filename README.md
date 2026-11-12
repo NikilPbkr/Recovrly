@@ -221,12 +221,23 @@ With one argument, the file is written next to the input as `<input>_standardize
 
 ---
 
-## Running tests
+## Development
 
-From the repository root:
+From the repository root, install the app dependencies with `pip install -r requirements.txt`. Tests and lint do not need an API key.
+
+### Running tests
 
 ```bash
 python -m unittest discover -s tests -t .
 ```
 
-No API key is required. The suite never calls the API. The same command runs in GitHub Actions (Python 3.12) on pushes to `main` and on pull requests.
+The suite never calls the API. The same command runs in GitHub Actions (Python 3.12) on pushes to `main` and on pull requests.
+
+### Lint
+
+```bash
+python -m pip install ruff==0.17.5
+ruff check .
+```
+
+The rules are in `pyproject.toml`. Ruff reports unused imports, undefined names, and other likely mistakes. It does not reformat files or reorder imports. The same check runs in that GitHub Actions workflow, next to the tests.
