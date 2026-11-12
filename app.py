@@ -311,6 +311,92 @@ def render_results_summary(results: pd.DataFrame) -> None:
     )
 
 
+# Decision columns come before the long argument so the table can be scanned.
+RESULTS_PREVIEW_COLUMNS = (
+    "Transaction_ID",
+    "Reason_Code",
+    "Recommendation",
+    "Simulated_Win_Rate",
+    "Potential_Recovery",
+    "Top_Evidence",
+    "AI_Argument",
+)
+
+# Anything other than these two labels sorts after them.
+_RECOMMENDATION_SORT_ORDER = {"Fight": 0, "Don't Fight": 1}
+
+
+def results_preview_display() -> Dict[str, Dict[str, str]]:
+    """Labels and number formats for the results table.
+
+    ``Simulated_Win_Rate`` is stored as a fraction and shown as a percent,
+    so 0.42 displays as 42%. ``Potential_Recovery`` is shown in dollars.
+    The CSV download keeps the processed order and the original numbers.
+    """
+    return {
+        "Transaction_ID": {"label": "Transaction"},
+        "Reason_Code": {"label": "Reason"},
+        "Recommendation": {"label": "Recommendation"},
+        "Simulated_Win_Rate": {
+            "label": "Win rate",
+            "format": "percent",
+            "help": "Estimated chance of winning. 40% or higher is Fight.",
+        },
+        "Potential_Recovery": {
+            "label": "Potential recovery",
+            "format": "dollar",
+            "help": "Win rate multiplied by the dispute amount.",
+        },
+        "Top_Evidence": {"label": "Top evidence"},
+        "AI_Argument": {"label": "Argument", "width": "large"},
+    }
+
+
+def results_preview(results: pd.DataFrame) -> pd.DataFrame:
+    """Return the rows and columns to show after a batch.
+
+    Fight recommendations come first, then Don't Fight, then any other
+    label. Within a label, a higher Potential_Recovery comes first. Equal
+    recovery keeps the order the rows were processed in.
+
+    The numbers are unchanged. This only chooses which row appears first
+    and which columns are shown.
+    """
+    preview = results.loc[:, list(RESULTS_PREVIEW_COLUMNS)].copy()
+    priority = preview["Recommendation"].map(_RECOMMENDATION_SORT_ORDER).fillna(2)
+    preview = preview.assign(
+        _priority=priority,
+        _original=list(range(len(preview))),
+    )
+    preview = preview.sort_values(
+        by=["_priority", "Potential_Recovery", "_original"],
+        ascending=[True, False, True],
+        kind="mergesort",
+    )
+    return preview.drop(columns=["_priority", "_original"]).reset_index(drop=True)
+
+
+def _results_preview_column_config() -> Dict[str, Any]:
+    """Streamlit column settings for :func:`results_preview_display`."""
+    config = {}
+    for column, options in results_preview_display().items():
+        kwargs: Dict[str, Any] = {}
+        if "help" in options:
+            kwargs["help"] = options["help"]
+        if "width" in options:
+            kwargs["width"] = options["width"]
+        label = options.get("label")
+        if "format" in options:
+            config[column] = st.column_config.NumberColumn(
+                label,
+                format=options["format"],
+                **kwargs,
+            )
+        else:
+            config[column] = st.column_config.TextColumn(label, **kwargs)
+    return config
+
+
 def transform_csv(df: pd.DataFrame) -> pd.DataFrame:
     """Transform any CSV into standardized format with fuzzy matching and placeholders."""
     sources = resolve_column_sources(df.columns)
@@ -760,19 +846,20 @@ if process_clicked:
 
     render_results_summary(results_df)
 
+    preview = results_preview(results_df)
     st.subheader("Preview")
-    preview_cols = [
-        "Transaction_ID",
-        "Reason_Code",
-        "Recommendation",
-        "Top_Evidence",
-        "AI_Argument",
-        "Simulated_Win_Rate",
-        "Potential_Recovery",
-    ]
-    st.dataframe(results_df[preview_cols], use_container_width=True)
+    st.caption(
+        "Fight recommendations are listed first, highest potential recovery at the top. "
+        "Win rate is the estimated chance of winning; 40% or higher is Fight."
+    )
+    st.dataframe(
+        preview,
+        column_config=_results_preview_column_config(),
+        hide_index=True,
+        use_container_width=True,
+    )
 
-    # Download full processed results
+    # The file stays in processed order. The table above is ordered for review.
     csv_bytes = results_df.to_csv(index=False).encode("utf-8")
     st.download_button(
         label="Download CSV",
