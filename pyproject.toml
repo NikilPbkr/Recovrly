@@ -1,0 +1,11 @@
+[tool.ruff]
+# The app supports Python 3.9 and newer. This file configures lint only.
+# `ruff format` is not part of the check.
+target-version = "py39"
+
+[tool.ruff.lint]
+# Pyflakes (F) plus pycodestyle's error classes (E4, E7, E9).
+# That covers unused imports, undefined names, and syntax or logic mistakes.
+# Import order, pyupgrade, and layout rules stay off so this does not
+# force a reformat.
+select = ["E4", "E7", "E9", "F"]

@@ -18,6 +18,9 @@ AI_Dispute_Arguments.csv
 .env
 *.key
 
+# Ruff
+.ruff_cache/
+
 # IDE
 .vscode/
 .idea/

@@ -639,7 +639,7 @@ Output ONLY valid JSON in this exact format:
     except Exception as exc:
         report_api_failure(exc, "Argument generation")
         # Fallback: return generic message
-        return [f"Dispute argument generation failed." for _ in disputes]
+        return ["Dispute argument generation failed." for _ in disputes]
 
 
 # First matching substring wins. Compared case-insensitively, in this order.
