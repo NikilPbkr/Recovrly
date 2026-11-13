@@ -144,7 +144,10 @@ class ResultsSummaryPreviewTests(unittest.TestCase):
                 for caption in at.caption
             )
         )
-        self.assertEqual(at.download_button[0].label, "Download CSV")
+        self.assertIn(
+            "Download CSV",
+            [button.label for button in at.download_button],
+        )
         self.assertEqual(list(preview.columns), list(app.RESULTS_PREVIEW_COLUMNS))
 
 

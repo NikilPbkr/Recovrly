@@ -7,11 +7,13 @@ AI Chargeback Dispute Optimizer (Streamlit)
 """
 
 import os
+import io
 import json
 import math
 import time
 import hashlib
-from typing import List, Dict, Any, Optional
+from pathlib import Path
+from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 from difflib import get_close_matches
 
@@ -780,10 +782,72 @@ def process_disputes(df: pd.DataFrame, n_rows: int, batch_size: int = 2) -> pd.D
 
     return pd.DataFrame(results)
 
+
+# Bundled example next to this file. Used only when the user asks for it.
+SAMPLE_CSV_FILENAME = "Dummy_Chargeback_Data.csv"
+
+
+def sample_csv_path() -> Path:
+    """Path to the bundled sample CSV."""
+    return Path(__file__).resolve().parent / SAMPLE_CSV_FILENAME
+
+
+def load_sample_csv_bytes() -> bytes:
+    """Read the bundled sample CSV.
+
+    This is a local file read. It does not call OpenAI. Processing still
+    starts only when the user clicks Process, the same as after an upload.
+    """
+    return sample_csv_path().read_bytes()
+
+
+def sample_csv_source() -> io.BytesIO:
+    """Binary buffer of the sample, shaped like an uploaded file.
+
+    ``load_merchant_csv`` reads an upload with ``getvalue`` when that method
+    exists. ``BytesIO`` has the same method, so the sample takes that path.
+    """
+    return io.BytesIO(load_sample_csv_bytes())
+
+
+def choose_csv_source(uploaded: Any, use_sample: bool) -> Tuple[Any, bool]:
+    """Choose the CSV for this run.
+
+    Returns ``(source, using_sample)``. ``source`` is ``None`` when there is
+    no upload and the sample was not requested. An uploaded file is returned
+    as-is, including when the sample is also requested, so the upload flow
+    does not change. The sample comes from :func:`sample_csv_source`.
+    """
+    if uploaded is not None:
+        return uploaded, False
+    if use_sample:
+        return sample_csv_source(), True
+    return None, False
+
+
 # -------------------------
 # UI
 # -------------------------
-uploaded = st.file_uploader("Upload a CSV file", type=["csv"])
+upload_col, sample_col = st.columns([3, 2])
+with upload_col:
+    uploaded = st.file_uploader("Upload a CSV file", type=["csv"])
+with sample_col:
+    use_sample = st.checkbox(
+        "Use sample data",
+        help=(
+            "Load Dummy_Chargeback_Data.csv when you click Process. "
+            "An uploaded file is used instead when one is selected. "
+            "Checking this does not call OpenAI."
+        ),
+    )
+    st.download_button(
+        label="Download sample CSV",
+        data=load_sample_csv_bytes(),
+        file_name=SAMPLE_CSV_FILENAME,
+        mime="text/csv",
+        help="Save Dummy_Chargeback_Data.csv to see the expected columns.",
+    )
+st.caption("No file yet? Check Use sample data, then click Process.")
 num_rows = st.number_input(
     label="Number of disputes to process (recommended: 10)",
     min_value=1,
@@ -799,12 +863,18 @@ if process_clicked:
         st.error(MISSING_API_KEY_MESSAGE)
         st.stop()
 
-    if uploaded is None:
+    try:
+        source, using_sample = choose_csv_source(uploaded, use_sample)
+    except OSError:
+        st.error("The sample CSV could not be read. Upload a file instead.")
+        st.stop()
+
+    if source is None:
         st.error("Please upload a CSV file.")
         st.stop()
 
     try:
-        df = load_merchant_csv(uploaded)
+        df = load_merchant_csv(source)
     except CsvInputError as exc:
         st.error(str(exc))
         st.stop()
@@ -818,6 +888,9 @@ if process_clicked:
     if not resolve_column_sources(df.columns):
         st.error(NO_MATCHING_COLUMNS_MESSAGE)
         st.stop()
+
+    if using_sample:
+        st.caption(f"Using the bundled sample, {SAMPLE_CSV_FILENAME}.")
 
     # Auto-transform CSV to standardized format
     source_columns = list(df.columns)
