@@ -198,8 +198,9 @@ class ResultsPreviewAppTests(unittest.TestCase):
                 for caption in at.caption
             )
         )
-        self.assertEqual(at.download_button[0].label, "Download CSV")
-        self.assertEqual(len(at.download_button), 1)
+        download_labels = [button.label for button in at.download_button]
+        self.assertIn("Download CSV", download_labels)
+        self.assertIn("Download sample CSV", download_labels)
 
 
 def _frame(rows):

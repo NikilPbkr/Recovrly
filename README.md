@@ -24,6 +24,7 @@ This project treats dispute resolution as a **decision-making workflow** that ca
 ## Features
 
 ✅ Upload CSV with dispute data  
+✅ Try the bundled sample CSV without a file of your own  
 ✅ Automatically rank evidence using AI  
 ✅ Generate persuasive dispute arguments  
 ✅ Calculate simulated win rates based on reason code, evidence, and amount  
@@ -79,7 +80,7 @@ From the repository root:
 streamlit run app.py
 ```
 
-Upload a CSV, choose how many disputes to process (1–50, default 10), and click **Process**. The app standardizes the file, shows which uploaded columns mapped to standard fields, ranks evidence, writes a dispute argument, and estimates a win rate. The results table lists Fight recommendations first, highest potential recovery at the top, and shows the win rate as a percent and potential recovery in dollars. Download the results as `AI_Dispute_Arguments.csv` (processed order, with the win rate kept as a fraction from 0 to 1).
+Upload a CSV, choose how many disputes to process (1–50, default 10), and click **Process**. To try the app without a file of your own, check **Use sample data** next to the uploader. That loads `Dummy_Chargeback_Data.csv` when you click **Process**, through the same steps as an upload. **Download sample CSV** saves that file so you can see the expected columns. Checking the box or downloading the sample does not call OpenAI. If a file is uploaded, that file is used even when the box is checked. The app standardizes the file, shows which uploaded columns mapped to standard fields, ranks evidence, writes a dispute argument, and estimates a win rate. The results table lists Fight recommendations first, highest potential recovery at the top, and shows the win rate as a percent and potential recovery in dollars. Download the results as `AI_Dispute_Arguments.csv` (processed order, with the win rate kept as a fraction from 0 to 1).
 
 The page loads without an API key. If `OPENAI_API_KEY` is missing, the app shows:
 
@@ -111,7 +112,7 @@ Set `CHARGEBACK_MODEL` before startup. It is read once, when `app.py` loads.
 
 ## CSV input
 
-Both the app and `transform_csv.py` expect a header row and one dispute per data row. Headers do not have to be the standard names. `Dummy_Chargeback_Data.csv` is a sample that already uses those names.
+Both the app and `transform_csv.py` expect a header row and one dispute per data row. Headers do not have to be the standard names. `Dummy_Chargeback_Data.csv` is a sample that already uses those names. In the app, **Use sample data** loads it on **Process** when no file is uploaded, and **Download sample CSV** saves a copy.
 
 A merchant export can use other headers, currency text, and a non-ISO date:
 
