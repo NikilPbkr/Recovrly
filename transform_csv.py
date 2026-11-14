@@ -16,8 +16,14 @@ Features:
 
 Usage:
     python transform_csv.py input.csv [output.csv]
+    python transform_csv.py --help
+
+With no output path, the standardized file is written next to the input as
+<input>_standardized.csv. A finished run prints how many rows were written
+and the output path.
 """
 
+import argparse
 import pandas as pd
 import sys
 import os
@@ -578,13 +584,60 @@ def format_duplicate_transaction_ids(duplicates: list) -> str:
     return "\n".join(lines)
 
 
+def default_output_path(input_path: str) -> str:
+    """Path used when the CLI is given no output file.
+
+    ``merchant_data.csv`` becomes ``merchant_data_standardized.csv`` in the
+    same directory. Only the final extension is replaced, so a name with no
+    extension still gains the ``_standardized.csv`` suffix.
+    """
+    base_name = os.path.splitext(input_path)[0]
+    return f"{base_name}_standardized.csv"
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Parser for ``python transform_csv.py input.csv [output.csv]``.
+
+    The input path is required. The output path is optional and defaults to
+    ``default_output_path``, which is what a one-argument run already did.
+    """
+    parser = argparse.ArgumentParser(
+        prog="transform_csv.py",
+        description="Transform a merchant chargeback CSV into Recoverly's standard columns.",
+        epilog=(
+            "A finished run prints how many rows were written and the output path.\n"
+            "\n"
+            "Examples:\n"
+            "  python transform_csv.py merchant_data.csv\n"
+            "  python transform_csv.py merchant_data.csv standardized_output.csv"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "input_path",
+        metavar="input.csv",
+        help="Merchant CSV to standardize. Needs a header row and one dispute per row.",
+    )
+    parser.add_argument(
+        "output_path",
+        nargs="?",
+        metavar="output.csv",
+        help=(
+            "Where to write the standardized CSV. "
+            "Defaults to <input>_standardized.csv next to the input file."
+        ),
+    )
+    return parser
+
+
 def transform_csv(input_path: str, output_path: Optional[str] = None) -> pd.DataFrame:
     """
     Transform merchant CSV into standardized Stripe-style format.
     
     Args:
         input_path: Path to input CSV file
-        output_path: Optional path for output CSV (if None, uses input_standardized.csv)
+        output_path: Optional path for output CSV. When omitted, uses
+            ``<input>_standardized.csv`` beside the input file.
     
     Returns:
         Transformed DataFrame
@@ -595,6 +648,8 @@ def transform_csv(input_path: str, output_path: Optional[str] = None) -> pd.Data
     When a real Transaction_ID appears on more than one row, prints those IDs
     before the completion line. Blank cells and generated placeholders are
     not counted. Repeated rows are still written to the output.
+
+    On success, prints how many rows were written and the output path.
     """
     print(f"📂 Loading CSV: {input_path}")
 
@@ -679,35 +734,32 @@ def transform_csv(input_path: str, output_path: Optional[str] = None) -> pd.Data
         print()
         print(format_duplicate_transaction_ids(duplicates))
     
-    # Save to output
+    # Save to output. None keeps the historical one-argument default.
     if output_path is None:
-        base_name = os.path.splitext(input_path)[0]
-        output_path = f"{base_name}_standardized.csv"
+        output_path = default_output_path(input_path)
     
     result_df.to_csv(output_path, index=False)
     print("\n✅ Transformation complete!")
     print(f"📄 Output saved to: {output_path}")
-    print(f"📊 Total rows: {len(result_df)}")
+    print(f"📊 Rows written: {len(result_df)}")
     
     return result_df
 
 
-def main():
-    if len(sys.argv) < 2:
-        print("Usage: python transform_csv.py input.csv [output.csv]")
-        print("\nExample:")
-        print("  python transform_csv.py merchant_data.csv")
-        print("  python transform_csv.py merchant_data.csv standardized_output.csv")
+def main(argv: Optional[list] = None) -> None:
+    """Standardize a CSV from the command line.
+
+    ``argv`` is the argument list without the program name. When it is
+    omitted, the process arguments are used, so
+    ``python transform_csv.py input.csv [output.csv]`` behaves as before.
+    """
+    args = build_parser().parse_args(argv)
+
+    if not os.path.exists(args.input_path):
+        print(f"❌ Error: File '{args.input_path}' not found")
         sys.exit(1)
-    
-    input_file = sys.argv[1]
-    output_file = sys.argv[2] if len(sys.argv) > 2 else None
-    
-    if not os.path.exists(input_file):
-        print(f"❌ Error: File '{input_file}' not found")
-        sys.exit(1)
-    
-    transform_csv(input_file, output_file)
+
+    transform_csv(args.input_path, args.output_path)
 
 
 if __name__ == "__main__":
