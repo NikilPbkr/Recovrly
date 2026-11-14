@@ -214,11 +214,14 @@ Other evidence text is kept as written. A tracking number such as `1Z999` stays 
 ## Standardizing a CSV from the command line
 
 ```bash
+python transform_csv.py --help
 python transform_csv.py input.csv
 python transform_csv.py input.csv output.csv
 ```
 
-With one argument, the file is written next to the input as `<input>_standardized.csv`. The app applies the same column matching, currency parsing, date normalization, evidence summaries, and placeholder fill when you click **Process**.
+`input.csv` is the merchant file. The output path is optional. With no output path, the file is written next to the input as `<input>_standardized.csv`. A finished run prints how many rows were written and where the file was saved. `--help` lists both paths and that default.
+
+The app applies the same column matching, currency parsing, date normalization, evidence summaries, and placeholder fill when you click **Process**.
 
 ---
 
