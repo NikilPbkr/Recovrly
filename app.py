@@ -327,13 +327,16 @@ RESULTS_PREVIEW_COLUMNS = (
 # Anything other than these two labels sorts after them.
 _RECOMMENDATION_SORT_ORDER = {"Fight": 0, "Don't Fight": 1}
 
+# Saved after a batch. The bytes are the table on the page, not a second sort.
+RESULTS_CSV_FILENAME = "recovrly_results.csv"
+
 
 def results_preview_display() -> Dict[str, Dict[str, str]]:
     """Labels and number formats for the results table.
 
     ``Simulated_Win_Rate`` is stored as a fraction and shown as a percent,
     so 0.42 displays as 42%. ``Potential_Recovery`` is shown in dollars.
-    The CSV download keeps the processed order and the original numbers.
+    The results CSV keeps those stored numbers and this column order.
     """
     return {
         "Transaction_ID": {"label": "Transaction"},
@@ -376,6 +379,16 @@ def results_preview(results: pd.DataFrame) -> pd.DataFrame:
         kind="mergesort",
     )
     return preview.drop(columns=["_priority", "_original"]).reset_index(drop=True)
+
+
+def dataframe_to_csv_bytes(frame: pd.DataFrame) -> bytes:
+    """Encode ``frame`` as UTF-8 CSV bytes.
+
+    The header, column order, and row order are kept. The index is left
+    out, and values are not reformatted. The results download passes the
+    table the page already shows, so a 0.42 win rate stays ``0.42``.
+    """
+    return frame.to_csv(index=False, lineterminator="\n").encode("utf-8")
 
 
 def _results_preview_column_config() -> Dict[str, Any]:
@@ -932,11 +945,16 @@ if process_clicked:
         use_container_width=True,
     )
 
-    # The file stays in processed order. The table above is ordered for review.
-    csv_bytes = results_df.to_csv(index=False).encode("utf-8")
+    # Same rows and columns as the table above. Downloading does not call OpenAI.
     st.download_button(
-        label="Download CSV",
-        data=csv_bytes,
-        file_name="AI_Dispute_Arguments.csv",
+        label="Download results as CSV",
+        data=dataframe_to_csv_bytes(preview),
+        file_name=RESULTS_CSV_FILENAME,
         mime="text/csv",
+        help=(
+            f"Saves the table above as {RESULTS_CSV_FILENAME}, "
+            "with the same columns and row order. "
+            "Win rate stays a fraction from 0 to 1. "
+            "Downloading does not call OpenAI."
+        ),
     )
