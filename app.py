@@ -945,12 +945,15 @@ if process_clicked:
         use_container_width=True,
     )
 
-    # Same rows and columns as the table above. Downloading does not call OpenAI.
+    # Same rows and columns as the table above. "ignore" downloads the file
+    # without a rerun, so the table stays on the page. A rerun would drop it,
+    # because it is drawn only after Process. Downloading does not call OpenAI.
     st.download_button(
         label="Download results as CSV",
         data=dataframe_to_csv_bytes(preview),
         file_name=RESULTS_CSV_FILENAME,
         mime="text/csv",
+        on_click="ignore",
         help=(
             f"Saves the table above as {RESULTS_CSV_FILENAME}, "
             "with the same columns and row order. "
