@@ -13,6 +13,7 @@ dist/
 
 # Output files
 AI_Dispute_Arguments.csv
+recovrly_results.csv
 
 # API keys
 .env
