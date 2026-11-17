@@ -1,7 +1,8 @@
 """The results download is the table on the page, written as CSV bytes.
 
 ``dataframe_to_csv_bytes`` only serializes a DataFrame. It does not sort,
-reformat numbers, or call OpenAI. The page passes it the preview table.
+reformat numbers, or call OpenAI. The page passes it the rows the table
+is showing, including after the recommendation filter.
 
 Run from the repo root:
 

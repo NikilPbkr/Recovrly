@@ -28,6 +28,7 @@ This project treats dispute resolution as a **decision-making workflow** that ca
 ✅ Automatically rank evidence using AI  
 ✅ Generate persuasive dispute arguments  
 ✅ Calculate simulated win rates based on reason code, evidence, and amount  
+✅ Filter the results table to All, Fight only, or Don't Fight only  
 ✅ Download the results table as CSV  
 ✅ Track token usage and costs  
 
@@ -80,7 +81,7 @@ From the repository root:
 streamlit run app.py
 ```
 
-Upload a CSV, choose how many disputes to process (1–50, default 10), and click **Process**. To try the app without a file of your own, check **Use sample data** next to the uploader. That loads `Dummy_Chargeback_Data.csv` when you click **Process**, through the same steps as an upload. **Download sample CSV** saves that file so you can see the expected columns. Checking the box or downloading the sample does not call OpenAI. If a file is uploaded, that file is used even when the box is checked. The app standardizes the file, shows which uploaded columns mapped to standard fields, ranks evidence, writes a dispute argument, and estimates a win rate. The results table lists Fight recommendations first, highest potential recovery at the top, and shows the win rate as a percent and potential recovery in dollars. **Download results as CSV** saves that table as `recovrly_results.csv`, in the same columns and row order. The win rate in the file is still a fraction from 0 to 1. Downloading the file does not call OpenAI, and the results stay on the page.
+Upload a CSV, choose how many disputes to process (1–50, default 10), and click **Process**. To try the app without a file of your own, check **Use sample data** next to the uploader. That loads `Dummy_Chargeback_Data.csv` when you click **Process**, through the same steps as an upload. **Download sample CSV** saves that file so you can see the expected columns. Checking the box or downloading the sample does not call OpenAI. If a file is uploaded, that file is used even when the box is checked. The app standardizes the file, shows which uploaded columns mapped to standard fields, ranks evidence, writes a dispute argument, and estimates a win rate. The results table lists Fight recommendations first, highest potential recovery at the top, and shows the win rate as a percent and potential recovery in dollars. **Show**, above that table, filters it to All, Fight only, or Don't Fight only. All stays selected until you change it, and a new batch starts on All again. The batch summary above the filter still counts every processed row. The download button saves the rows in the table as `recovrly_results.csv`, in the same columns and row order, and its label names that set (all results, Fight, or Don't Fight). The win rate in the file is still a fraction from 0 to 1. Changing the filter or downloading the file does not call OpenAI, and the results stay on the page.
 
 The page loads without an API key. If `OPENAI_API_KEY` is missing, the app shows:
 
