@@ -145,7 +145,7 @@ class ResultsSummaryPreviewTests(unittest.TestCase):
             )
         )
         self.assertIn(
-            "Download results as CSV",
+            "Download all results as CSV",
             [button.label for button in at.download_button],
         )
         self.assertEqual(list(preview.columns), list(app.RESULTS_PREVIEW_COLUMNS))

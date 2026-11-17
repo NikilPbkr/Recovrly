@@ -88,6 +88,11 @@ if "api_failure_notices" not in st.session_state:
 if 'total_tokens' not in st.session_state:
     st.session_state.total_tokens = 0
 
+# Last successful batch. The results filter reruns the script, and this is
+# what keeps the table on the page without processing the disputes again.
+if "processed_batch" not in st.session_state:
+    st.session_state.processed_batch = None
+
 REQUIRED_COLUMNS = [
     "Transaction_ID",
     "Customer_Name",
@@ -309,7 +314,8 @@ def render_results_summary(results: pd.DataFrame) -> None:
         f"${summary['total_potential_recovery']:,.2f}",
     )
     st.caption(
-        "Potential recovery is the sum of Potential Recovery on the processed rows."
+        "Potential recovery is the sum of Potential Recovery on the processed rows. "
+        "The filter below does not change these totals."
     )
 
 
@@ -327,8 +333,23 @@ RESULTS_PREVIEW_COLUMNS = (
 # Anything other than these two labels sorts after them.
 _RECOMMENDATION_SORT_ORDER = {"Fight": 0, "Don't Fight": 1}
 
-# Saved after a batch. The bytes are the table on the page, not a second sort.
+# Saved after a batch. The bytes are the rows in the table, after the
+# recommendation filter, in that same order.
 RESULTS_CSV_FILENAME = "recovrly_results.csv"
+
+# Default is first. The two narrower options match Recommendation exactly.
+RESULTS_FILTER_ALL = "All"
+RESULTS_FILTER_FIGHT = "Fight only"
+RESULTS_FILTER_DONT_FIGHT = "Don't Fight only"
+RESULTS_FILTER_OPTIONS = (
+    RESULTS_FILTER_ALL,
+    RESULTS_FILTER_FIGHT,
+    RESULTS_FILTER_DONT_FIGHT,
+)
+_RESULTS_FILTER_LABELS = {
+    RESULTS_FILTER_FIGHT: "Fight",
+    RESULTS_FILTER_DONT_FIGHT: "Don't Fight",
+}
 
 
 def results_preview_display() -> Dict[str, Dict[str, str]]:
@@ -381,12 +402,66 @@ def results_preview(results: pd.DataFrame) -> pd.DataFrame:
     return preview.drop(columns=["_priority", "_original"]).reset_index(drop=True)
 
 
+def filter_results_by_recommendation(preview: pd.DataFrame, choice: Any) -> pd.DataFrame:
+    """Keep the rows for one results filter, in the order they were given.
+
+    ``All`` returns every row. ``Fight only`` keeps Recommendation ``Fight``.
+    ``Don't Fight only`` keeps Recommendation ``Don't Fight``. Any other
+    choice returns every row, same as All, so an unexpected value does not
+    hide the batch. Recommendation labels other than those two stay in the
+    All view and drop out of the two narrower views.
+
+    Row order is unchanged. A table already sorted Fight-first, highest
+    recovery first, stays in that order. The input frame is not modified.
+    An empty frame stays empty and keeps its columns.
+    """
+    try:
+        label = _RESULTS_FILTER_LABELS.get(choice)
+    except TypeError:
+        # Unhashable values are not one of the three options.
+        label = None
+    if label is None:
+        selected = preview
+    else:
+        selected = preview.loc[preview["Recommendation"] == label]
+    return selected.reset_index(drop=True).copy()
+
+
+def results_download_label(choice: Any) -> str:
+    """Button text naming which rows the CSV contains.
+
+    The file is the filtered table. All says so. An unrecognized choice
+    uses the All label, matching :func:`filter_results_by_recommendation`.
+    """
+    if choice == RESULTS_FILTER_FIGHT:
+        return "Download Fight results as CSV"
+    if choice == RESULTS_FILTER_DONT_FIGHT:
+        return "Download Don't Fight results as CSV"
+    return "Download all results as CSV"
+
+
+def results_download_help(choice: Any) -> str:
+    """Help text for the results download button."""
+    if choice == RESULTS_FILTER_FIGHT:
+        scope = "the Fight rows in the table above"
+    elif choice == RESULTS_FILTER_DONT_FIGHT:
+        scope = "the Don't Fight rows in the table above"
+    else:
+        scope = "every row in the table above"
+    return (
+        f"Saves {scope} as {RESULTS_CSV_FILENAME}, "
+        "with the same columns and row order. "
+        "Win rate stays a fraction from 0 to 1. "
+        "Downloading does not call OpenAI."
+    )
+
+
 def dataframe_to_csv_bytes(frame: pd.DataFrame) -> bytes:
     """Encode ``frame`` as UTF-8 CSV bytes.
 
     The header, column order, and row order are kept. The index is left
     out, and values are not reformatted. The results download passes the
-    table the page already shows, so a 0.42 win rate stays ``0.42``.
+    rows the page is showing, so a 0.42 win rate stays ``0.42``.
     """
     return frame.to_csv(index=False, lineterminator="\n").encode("utf-8")
 
@@ -838,6 +913,63 @@ def choose_csv_source(uploaded: Any, use_sample: bool) -> Tuple[Any, bool]:
     return None, False
 
 
+def render_transform_status(source_columns, standardized_rows: int, using_sample: bool) -> None:
+    """Show the sample note, the transform result, and the column mapping."""
+    if using_sample:
+        st.caption(f"Using the bundled sample, {SAMPLE_CSV_FILENAME}.")
+    st.success(f"✓ CSV transformed and standardized ({standardized_rows} rows)")
+    render_column_mapping(source_columns)
+
+
+def render_results_section(results: pd.DataFrame) -> None:
+    """Summary for the whole batch, then a filtered table and its download.
+
+    The summary counts every processed row. The radio only changes which
+    of those rows are listed and which rows the CSV contains. The batch
+    is already saved in session state, so this does not call OpenAI.
+    """
+    st.info(f"📊 API Usage: {st.session_state.total_tokens:,} tokens used for this batch")
+    render_results_summary(results)
+
+    preview = results_preview(results)
+    st.subheader("Preview")
+    choice = st.radio(
+        "Show",
+        options=list(RESULTS_FILTER_OPTIONS),
+        horizontal=True,
+        key="results_filter",
+        help=(
+            "Changes which rows are listed below. "
+            "The batch summary still includes every row. "
+            "This does not call OpenAI."
+        ),
+    )
+    shown = filter_results_by_recommendation(preview, choice)
+    st.caption(
+        "Fight recommendations are listed first, highest potential recovery at the top. "
+        "Win rate is the estimated chance of winning; 40% or higher is Fight. "
+        f"Showing {len(shown):,} of {len(preview):,}."
+    )
+    st.dataframe(
+        shown,
+        column_config=_results_preview_column_config(),
+        hide_index=True,
+        use_container_width=True,
+    )
+
+    # The file is the filtered table above, in that order. "ignore" skips a
+    # rerun on click. The batch itself is in session state, so changing the
+    # filter can rerun without calling OpenAI or dropping the results.
+    st.download_button(
+        label=results_download_label(choice),
+        data=dataframe_to_csv_bytes(shown),
+        file_name=RESULTS_CSV_FILENAME,
+        mime="text/csv",
+        on_click="ignore",
+        help=results_download_help(choice),
+    )
+
+
 # -------------------------
 # UI
 # -------------------------
@@ -902,20 +1034,16 @@ if process_clicked:
         st.error(NO_MATCHING_COLUMNS_MESSAGE)
         st.stop()
 
-    if using_sample:
-        st.caption(f"Using the bundled sample, {SAMPLE_CSV_FILENAME}.")
-
     # Auto-transform CSV to standardized format
     source_columns = list(df.columns)
     with st.spinner("Standardizing CSV format..."):
         try:
             df = transform_csv(df)
-            st.success(f"✓ CSV transformed and standardized ({len(df)} rows)")
         except Exception as e:
             st.error(f"CSV transformation failed: {e}")
             st.stop()
 
-    render_column_mapping(source_columns)
+    render_transform_status(source_columns, len(df), using_sample)
 
     # Start fresh so a second click can warn again, and so a timeout across
     # several batches shows the explanation once.
@@ -927,37 +1055,27 @@ if process_clicked:
         st.error(f"Processing failed: {e}")
         st.stop()
 
-    # Display token usage
-    st.info(f"📊 API Usage: {st.session_state.total_tokens:,} tokens used for this batch")
+    # Keep the batch so a later filter change reruns the page without
+    # calling OpenAI. Reset the filter so the new batch starts on All.
+    st.session_state.processed_batch = {
+        "results": results_df.copy(),
+        "source_columns": source_columns,
+        "standardized_rows": len(df),
+        "using_sample": using_sample,
+    }
+    st.session_state.results_filter = RESULTS_FILTER_ALL
+    render_results_section(st.session_state.processed_batch["results"])
 
-    render_results_summary(results_df)
-
-    preview = results_preview(results_df)
-    st.subheader("Preview")
-    st.caption(
-        "Fight recommendations are listed first, highest potential recovery at the top. "
-        "Win rate is the estimated chance of winning; 40% or higher is Fight."
+# A filter change reruns the script with Process unclicked. Draw the saved
+# batch again instead of dropping it. Notices were shown during Process;
+# show them again here so that rerun does not hide them.
+if st.session_state.processed_batch is not None and not process_clicked:
+    saved = st.session_state.processed_batch
+    render_transform_status(
+        saved["source_columns"],
+        saved["standardized_rows"],
+        saved["using_sample"],
     )
-    st.dataframe(
-        preview,
-        column_config=_results_preview_column_config(),
-        hide_index=True,
-        use_container_width=True,
-    )
-
-    # Same rows and columns as the table above. "ignore" downloads the file
-    # without a rerun, so the table stays on the page. A rerun would drop it,
-    # because it is drawn only after Process. Downloading does not call OpenAI.
-    st.download_button(
-        label="Download results as CSV",
-        data=dataframe_to_csv_bytes(preview),
-        file_name=RESULTS_CSV_FILENAME,
-        mime="text/csv",
-        on_click="ignore",
-        help=(
-            f"Saves the table above as {RESULTS_CSV_FILENAME}, "
-            "with the same columns and row order. "
-            "Win rate stays a fraction from 0 to 1. "
-            "Downloading does not call OpenAI."
-        ),
-    )
+    for message in st.session_state.api_failure_notices:
+        st.warning(message)
+    render_results_section(saved["results"])

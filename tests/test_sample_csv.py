@@ -113,7 +113,7 @@ class SampleCsvAppTests(unittest.TestCase):
         )
         self.assertTrue(any("CSV transformed" in success.value for success in at.success))
         self.assertIn(
-            "Download results as CSV",
+            "Download all results as CSV",
             [button.label for button in at.download_button],
         )
 

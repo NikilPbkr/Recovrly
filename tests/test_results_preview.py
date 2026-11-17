@@ -199,12 +199,12 @@ class ResultsPreviewAppTests(unittest.TestCase):
             )
         )
         download_labels = [button.label for button in at.download_button]
-        self.assertIn("Download results as CSV", download_labels)
+        self.assertIn("Download all results as CSV", download_labels)
         self.assertIn("Download sample CSV", download_labels)
         results_download = next(
             button
             for button in at.download_button
-            if button.label == "Download results as CSV"
+            if button.label == "Download all results as CSV"
         )
         self.assertIn(app.RESULTS_CSV_FILENAME, results_download.help)
         self.assertIn("same columns and row order", results_download.help)
